@@ -58,7 +58,7 @@ public class RetrieveQuads {
 						valQuad[i] = NTriplesUtil.parseValue(quad[i], valFactory);
 				}
 				
-				ArrayList<ArrayList<Value>> results = sol.util.getResults(valQuad);
+				ArrayList<ArrayList<Value>> results = sol.util.getAllResults(valQuad);
 				long end = System.currentTimeMillis();
 				System.out.println(results.size()+" quads retrieved in: "+(end-start)+" ms");
 				
