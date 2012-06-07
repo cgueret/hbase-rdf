@@ -3,10 +3,10 @@ package nl.vu.datalayer.hbase.util;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 
@@ -28,17 +28,23 @@ import org.apache.hadoop.hbase.filter.KeyOnlyFilter;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hdfs.util.ByteArray;
+import org.apache.jcs.JCS;
+import org.apache.jcs.access.exception.CacheException;
 import org.openrdf.model.Literal;
 import org.openrdf.model.Statement;
 import org.openrdf.model.Value;
 import org.openrdf.model.ValueFactory;
 import org.openrdf.model.impl.ValueFactoryImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class that exposes operations with the tables in the PrefixMatch schema
  * 
  */
 public class HBPrefixMatchUtil implements IHBaseUtil {
+	// Logger instance
+	protected final Logger logger = LoggerFactory.getLogger(HBPrefixMatchUtil.class);
 
 	private HBaseConnection con;
 
@@ -46,7 +52,7 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	 * Maps the query patterns to the associated tables that resolve those
 	 * patterns
 	 */
-	private HashMap<String, Integer> pattern2Table;
+	private Map<String, Integer> pattern2Table = new HashMap<String, Integer>(16);
 
 	/**
 	 * Internal use: the index of the table used for retrieval
@@ -54,6 +60,8 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	private int tableIndex;
 
 	private HashMap<ByteArray, Value> id2ValueMap;
+
+	private JCS resultCache;
 
 	private ArrayList<Value> boundElements;
 
@@ -67,9 +75,39 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	public HBPrefixMatchUtil(HBaseConnection con) {
 		super();
 		this.con = con;
-		pattern2Table = new HashMap<String, Integer>(16);
-		buildHashMap();
+
+		// Build the hash map
+		pattern2Table.put("????", HBPrefixMatchSchema.SPOC);
+		pattern2Table.put("|???", HBPrefixMatchSchema.SPOC);
+		pattern2Table.put("||??", HBPrefixMatchSchema.SPOC);
+		pattern2Table.put("|||?", HBPrefixMatchSchema.SPOC);
+		pattern2Table.put("||||", HBPrefixMatchSchema.SPOC);
+
+		pattern2Table.put("?|??", HBPrefixMatchSchema.POCS);
+		pattern2Table.put("?||?", HBPrefixMatchSchema.POCS);
+		pattern2Table.put("?|||", HBPrefixMatchSchema.POCS);
+
+		pattern2Table.put("??|?", HBPrefixMatchSchema.OSPC);
+		pattern2Table.put("|?|?", HBPrefixMatchSchema.OSPC);
+
+		pattern2Table.put("??||", HBPrefixMatchSchema.OCSP);
+		pattern2Table.put("|?||", HBPrefixMatchSchema.OCSP);
+
+		pattern2Table.put("???|", HBPrefixMatchSchema.CSPO);
+		pattern2Table.put("|??|", HBPrefixMatchSchema.CSPO);
+		pattern2Table.put("||?|", HBPrefixMatchSchema.CSPO);
+
+		pattern2Table.put("?|?|", HBPrefixMatchSchema.CPSO);
+
+		// Initialise the caches
 		id2ValueMap = new HashMap<ByteArray, Value>();
+		try {
+			resultCache = JCS.getInstance("results");
+		} catch (CacheException e1) {
+			e1.printStackTrace();
+		}
+
+		// id2ValueMap = new HashMap<ByteArray, Value>();
 		boundElements = new ArrayList<Value>();
 		valueFactory = new ValueFactoryImpl();
 
@@ -82,32 +120,75 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		schemaSuffix = prop.getProperty(HBPrefixMatchSchema.SUFFIX_PROPERTY, "");
 	}
 
-	private void buildHashMap() {
-		pattern2Table.put("????", HBPrefixMatchSchema.SPOC);
-		pattern2Table.put("|???", HBPrefixMatchSchema.SPOC);
-		pattern2Table.put("||??", HBPrefixMatchSchema.SPOC);
-		pattern2Table.put("|||?", HBPrefixMatchSchema.SPOC);
-		pattern2Table.put("||||", HBPrefixMatchSchema.SPOC);
-
-		pattern2Table.put("?|??", HBPrefixMatchSchema.POCS);
-		pattern2Table.put("?||?", HBPrefixMatchSchema.POCS);
-		pattern2Table.put("?|||", HBPrefixMatchSchema.POCS);
-		pattern2Table.put("??|?", HBPrefixMatchSchema.OSPC);
-		pattern2Table.put("|?|?", HBPrefixMatchSchema.OSPC);
-
-		pattern2Table.put("??||", HBPrefixMatchSchema.OCSP);
-		pattern2Table.put("|?||", HBPrefixMatchSchema.OCSP);
-
-		pattern2Table.put("???|", HBPrefixMatchSchema.CSPO);
-		pattern2Table.put("|??|", HBPrefixMatchSchema.CSPO);
-		pattern2Table.put("||?|", HBPrefixMatchSchema.CSPO);
-
-		pattern2Table.put("?|?|", HBPrefixMatchSchema.CPSO);
-	}
-
 	@Override
 	public ArrayList<ArrayList<String>> getRow(String[] quad) {
 		return null;
+	}
+
+	/**
+	 * @param quad
+	 * @return
+	 */
+	@SuppressWarnings("unchecked")
+	protected ArrayList<ByteArray> getMatchingTriples(Value[] quad) {
+		boundElements.clear();
+		id2ValueMap.clear();
+
+		ArrayList<Value> cacheKey = new ArrayList<Value>();
+		for (Value v : quad)
+			cacheKey.add(v);
+
+		// Build the key
+		byte[] startKey = null;
+		try {
+			startKey = buildKey(quad);
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		} catch (NumericalRangeException e1) {
+			e1.printStackTrace();
+		}
+
+		ArrayList<ByteArray> resultsList = (ArrayList<ByteArray>) resultCache.get(cacheKey);
+		// resultsList = null;
+		ResultScanner results = null;
+		if (resultsList == null) {
+			logger.info("Cached missed, need to query the data layer");
+			resultsList = new ArrayList<ByteArray>();
+
+			try {
+				// If no key can be created, no quad matches the request
+				if (startKey != null) {
+
+					// Search for matching quads
+					Filter prefixFilter = new PrefixFilter(startKey);
+					Filter keyOnlyFilter = new KeyOnlyFilter();
+					Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL, prefixFilter, keyOnlyFilter);
+					Scan scan = new Scan(startKey, filterList);
+					scan.setCaching(1000);
+
+					String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] + schemaSuffix;
+					HTableInterface table = con.getTable(tableName);
+					results = table.getScanner(scan);
+
+					Result r = null;
+					while ((r = results.next()) != null) {
+						resultsList.add(new ByteArray(r.getRow()));
+					}
+
+					resultCache.put(cacheKey, resultsList);
+
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			} catch (CacheException e) {
+				e.printStackTrace();
+			} finally {
+				if (results != null)
+					results.close();
+			}
+		}
+
+		return resultsList;
 	}
 
 	/*
@@ -118,47 +199,30 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	 * .Value[])
 	 */
 	@Override
-	public ArrayList<ArrayList<Value>> getAllResults(Value[] quad) throws IOException {
+	public ArrayList<Value[]> getAllResults(Value[] quad) throws IOException {
+		id2ValueMap.clear();
+		boundElements.clear();
 		// we expect the pattern in the order SPOC
 
 		try {
-			id2ValueMap.clear();
-			boundElements.clear();
+			// Build the key
 			byte[] startKey = buildKey(quad);
+
+			// If no key can be created, no quad matches the request
 			if (startKey == null) {
-				return new ArrayList<ArrayList<Value>>();
+				return null;
 			}
+			ArrayList<ByteArray> resultsList = getMatchingTriples(quad);
 
-			// start search in the quad tables
-			long startSearch = System.currentTimeMillis();
-			Filter prefixFilter = new PrefixFilter(startKey);
-			Filter keyOnlyFilter = new KeyOnlyFilter();
-			Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL, prefixFilter, keyOnlyFilter);
-
-			Scan scan = new Scan(startKey, filterList);
-			scan.setCaching(100);
-
-			String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] + schemaSuffix;
-			HTableInterface table = con.getTable(tableName);
-			ResultScanner results = table.getScanner(scan);
-
-			Result r = null;
 			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
 			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
 
 			ArrayList<Get> batchGets = new ArrayList<Get>();
 			ArrayList<ArrayList<ByteArray>> quadResults = new ArrayList<ArrayList<ByteArray>>();
-			while ((r = results.next()) != null) {
-				quadResults.add(parseKey(r.getRow(), startKey.length, sizeOfInterest, batchGets));
-			}
-			results.close();
-			long searchTime = System.currentTimeMillis() - startSearch;
+			for (ByteArray result : resultsList)
+				quadResults.add(parseKey(result.getBytes(), startKey.length, sizeOfInterest, batchGets));
 
-			long start = System.currentTimeMillis();
 			Result[] id2StringResults = id2StringTable.get(batchGets);
-			long id2StringOverhead = System.currentTimeMillis() - start;
-
-			// System.out.println("Search time: "+searchTime+"; Id2StringOverhead: "+id2StringOverhead+"; String2IdOverhead: "+string2IdOverhead);
 
 			// update the internal mapping between ids and strings
 			for (Result result : id2StringResults) {
@@ -174,14 +238,10 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 			int queryElemNo = boundElements.size();
 			// build the quads in SPOC order using strings
-			ArrayList<ArrayList<Value>> ret = new ArrayList<ArrayList<Value>>();
+			ArrayList<Value[]> ret = new ArrayList<Value[]>();
 
 			for (ArrayList<ByteArray> quadList : quadResults) {
-				// ArrayList<String> newList = new
-				// ArrayList<String>(quadList.size());
-
-				ArrayList<Value> newQuadResult = new ArrayList<Value>(4);
-				newQuadResult.addAll(Arrays.asList(new Value[] { null, null, null, null }));
+				Value[] newQuadResult = new Value[] { null, null, null, null };
 
 				// fill in unbound elements
 				for (int i = 0; i < quadList.size(); i++) {
@@ -189,17 +249,17 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 							&& TypedId.getType(quadList.get(i).getBytes()[0]) == TypedId.NUMERICAL) {
 						// handle numerical
 						TypedId id = new TypedId(quadList.get(i).getBytes());
-						newQuadResult.set(2, id.toLiteral());
+						newQuadResult[2] = id.toLiteral();
 					} else {
-						newQuadResult.set(HBPrefixMatchSchema.TO_SPOC_ORDER[tableIndex][(i + queryElemNo)],
-								id2ValueMap.get(quadList.get(i)));
+						int pos = HBPrefixMatchSchema.TO_SPOC_ORDER[tableIndex][(i + queryElemNo)];
+						newQuadResult[pos] = id2ValueMap.get(quadList.get(i));
 					}
 				}
 
 				// fill in bound elements
-				for (int i = 0, j = 0; i < newQuadResult.size() && j < boundElements.size(); i++) {
-					if (newQuadResult.get(i) == null) {
-						newQuadResult.set(i, boundElements.get(j++));
+				for (int i = 0, j = 0; i < newQuadResult.length && j < boundElements.size(); i++) {
+					if (newQuadResult[i] == null) {
+						newQuadResult[i] = boundElements.get(j++);
 					}
 				}
 
@@ -212,6 +272,125 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 			e.printStackTrace();
 			return null;
 		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * nl.vu.datalayer.hbase.util.IHBaseUtil#getSingleResult(org.openrdf.model
+	 * .Value[], java.util.Random)
+	 */
+	@Override
+	public Value[] getSingleResult(Value[] quad, Random randomizer) throws IOException {
+		boundElements.clear();
+		id2ValueMap.clear();
+
+		try {
+			// Build the key
+			byte[] startKey = buildKey(quad);
+
+			// If no key can be created, no quad matches the request
+			if (startKey == null) {
+				return null;
+			}
+			ArrayList<ByteArray> resultsList = getMatchingTriples(quad);
+
+			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
+			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
+
+			// If the list is empty, return null
+			if (resultsList.size() == 0) {
+				return null;
+			}
+
+			// Pick a result at random
+			List<Get> batchGets = new ArrayList<Get>();
+			ByteArray result = resultsList.get(randomizer.nextInt(resultsList.size()));
+			ArrayList<ByteArray> quadResult = parseKey(result.getBytes(), startKey.length, sizeOfInterest, batchGets);
+
+			// System.out.println("Search time: "+searchTime+"; Id2StringOverhead: "+id2StringOverhead+"; String2IdOverhead: "+string2IdOverhead);
+
+			// update the internal mapping between ids and strings
+			for (Result id2StringResult : id2StringTable.get(batchGets)) {
+				byte[] rowVal = id2StringResult.getValue(HBPrefixMatchSchema.COLUMN_FAMILY,
+						HBPrefixMatchSchema.COLUMN_NAME);
+				byte[] rowKey = id2StringResult.getRow();
+				if (rowVal == null || rowKey == null) {
+					System.err.println("Id not found: " + (rowKey == null ? null : hexaString(rowKey)));
+				} else {
+					Value val = convertStringToValue(new String(rowVal));
+					id2ValueMap.put(new ByteArray(rowKey), val);
+				}
+			}
+
+			int queryElemNo = boundElements.size();
+
+			Value[] decodedQuadResult = new Value[] { null, null, null, null };
+
+			// fill in unbound elements
+			for (int i = 0; i < quadResult.size(); i++) {
+				if ((i + queryElemNo) == HBPrefixMatchSchema.ORDER[tableIndex][2]
+						&& TypedId.getType(quadResult.get(i).getBytes()[0]) == TypedId.NUMERICAL) {
+					// handle numerical
+					TypedId id = new TypedId(quadResult.get(i).getBytes());
+					decodedQuadResult[2] = id.toLiteral();
+				} else {
+					int pos = HBPrefixMatchSchema.TO_SPOC_ORDER[tableIndex][(i + queryElemNo)];
+					decodedQuadResult[pos] = id2ValueMap.get(quadResult.get(i));
+				}
+			}
+
+			// fill in bound elements
+			for (int i = 0, j = 0; i < decodedQuadResult.length && j < boundElements.size(); i++)
+				if (decodedQuadResult[i] == null)
+					decodedQuadResult[i] = boundElements.get(j++);
+
+			return decodedQuadResult;
+		} catch (NumericalRangeException e) {
+			e.printStackTrace();
+			return null;
+		}
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * nl.vu.datalayer.hbase.util.IHBaseUtil#getNumberResults(org.openrdf.model
+	 * .Value[])
+	 */
+	@Override
+	public long getNumberResults(Value[] quad) throws IOException {
+		id2ValueMap.clear();
+		boundElements.clear();
+
+		// we expect the pattern in the order SPOC
+
+		ArrayList<ByteArray> results = getMatchingTriples(quad);
+		return results.size();
+
+		/*
+		 * try { byte[] startKey = buildKey(quad); if (startKey == null) return
+		 * 0;
+		 * 
+		 * // start search in the quad tables Filter prefixFilter = new
+		 * PrefixFilter(startKey); Filter keyOnlyFilter = new KeyOnlyFilter();
+		 * Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL,
+		 * prefixFilter, keyOnlyFilter);
+		 * 
+		 * Scan scan = new Scan(startKey, filterList); scan.setCaching(1000);
+		 * 
+		 * String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] +
+		 * schemaSuffix; HTableInterface table = con.getTable(tableName);
+		 * ResultScanner results = table.getScanner(scan);
+		 * 
+		 * long number = 0; while (results.next() != null && number < 1000)
+		 * number++; results.close();
+		 * 
+		 * return number; } catch (NumericalRangeException e) {
+		 * e.printStackTrace(); return 0; }
+		 */
 	}
 
 	public Value convertStringToValue(String val) {
@@ -363,7 +542,6 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 		tableIndex = pattern2Table.get(pattern);
 
-		// HTable table = con.getTable(HBPrefixMatchSchema.STRING2ID);
 		HTableInterface table = con.getTable(HBPrefixMatchSchema.STRING2ID + schemaSuffix);
 
 		byte[] key = new byte[keySize];
@@ -404,102 +582,5 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	@Override
 	public void populateTables(ArrayList<Statement> statements) throws Exception {
 
-	}
-
-	/*
-	 * (non-Javadoc)
-	 * 
-	 * @see
-	 * nl.vu.datalayer.hbase.util.IHBaseUtil#getSingleResult(org.openrdf.model
-	 * .Value[], java.util.Random)
-	 */
-	@Override
-	public Value[] getSingleResult(Value[] quad, Random randomizer) throws IOException {
-		boundElements.clear();
-		id2ValueMap.clear();
-
-		try {
-			// Build the key
-			byte[] startKey = buildKey(quad);
-
-			// If no key can be created, no quad matches the request
-			if (startKey == null)
-				return null;
-
-			// Search for matching quads
-			// long startSearch = System.currentTimeMillis();
-			Filter prefixFilter = new PrefixFilter(startKey);
-			Filter keyOnlyFilter = new KeyOnlyFilter();
-			Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL, prefixFilter, keyOnlyFilter);
-
-			Scan scan = new Scan(startKey, filterList);
-			scan.setCaching(100);
-
-			String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex];
-			HTableInterface table = con.getTable(tableName);
-			ResultScanner results = table.getScanner(scan);
-
-			Result r = null;
-			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
-			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
-
-			ArrayList<ByteArray> resultsList = new ArrayList<ByteArray>();
-			while ((r = results.next()) != null) {
-				resultsList.add(new ByteArray(r.getRow()));
-			}
-			results.close();
-			// long searchTime = System.currentTimeMillis() - startSearch;
-
-			// If the list is empty, return null
-			if (resultsList.size() == 0)
-				return null;
-
-			// Pick a result at random
-			List<Get> batchGets = new ArrayList<Get>();
-			ByteArray result = resultsList.get(randomizer.nextInt(resultsList.size()));
-			ArrayList<ByteArray> quadResult = parseKey(result.getBytes(), startKey.length, sizeOfInterest, batchGets);
-
-			// System.out.println("Search time: "+searchTime+"; Id2StringOverhead: "+id2StringOverhead+"; String2IdOverhead: "+string2IdOverhead);
-
-			// update the internal mapping between ids and strings
-			for (Result id2StringResult : id2StringTable.get(batchGets)) {
-				byte[] rowVal = id2StringResult.getValue(HBPrefixMatchSchema.COLUMN_FAMILY,
-						HBPrefixMatchSchema.COLUMN_NAME);
-				byte[] rowKey = id2StringResult.getRow();
-				if (rowVal == null || rowKey == null) {
-					System.err.println("Id not found: " + (rowKey == null ? null : hexaString(rowKey)));
-				} else {
-					Value val = convertStringToValue(new String(rowVal));
-					id2ValueMap.put(new ByteArray(rowKey), val);
-				}
-			}
-
-			int queryElemNo = boundElements.size();
-
-			Value[] decodedQuadResult = new Value[] { null, null, null, null };
-
-			// fill in unbound elements
-			for (int i = 0; i < quadResult.size(); i++) {
-				if ((i + queryElemNo) == HBPrefixMatchSchema.ORDER[tableIndex][2]
-						&& TypedId.getType(quadResult.get(i).getBytes()[0]) == TypedId.NUMERICAL) {
-					// handle numerical
-					TypedId id = new TypedId(quadResult.get(i).getBytes());
-					decodedQuadResult[2] = id.toLiteral();
-				} else {
-					int pos = HBPrefixMatchSchema.TO_SPOC_ORDER[tableIndex][(i + queryElemNo)];
-					decodedQuadResult[pos] = id2ValueMap.get(quadResult.get(i));
-				}
-			}
-
-			// fill in bound elements
-			for (int i = 0, j = 0; i < decodedQuadResult.length && j < boundElements.size(); i++)
-				if (decodedQuadResult[i] == null)
-					decodedQuadResult[i] = boundElements.get(j++);
-
-			return decodedQuadResult;
-		} catch (NumericalRangeException e) {
-			e.printStackTrace();
-			return null;
-		}
 	}
 }

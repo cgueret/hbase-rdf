@@ -7,12 +7,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.StringTokenizer;
 
 import nl.vu.datalayer.hbase.HBaseClientSolution;
-import nl.vu.datalayer.hbase.HBaseFactory;
-import nl.vu.datalayer.hbase.connection.HBaseConnection;
-import nl.vu.datalayer.hbase.schema.HBHexastoreSchema;
 
 import org.openrdf.model.Namespace;
 import org.openrdf.model.Resource;
@@ -38,21 +34,19 @@ import org.openrdf.sail.helpers.NotifyingSailConnectionBase;
 import org.openrdf.sail.helpers.SailBase;
 import org.openrdf.sail.memory.MemoryStore;
 
-
 public class HBaseSailConnection extends NotifyingSailConnectionBase {
 
 	MemoryStore memStore;
 	NotifyingSailConnection memStoreCon;
 	HBaseClientSolution hbase;
-	
-    //Builder to write the query to bit by bit
-    StringBuilder queryString = new StringBuilder();
-	
+
+	// Builder to write the query to bit by bit
+	StringBuilder queryString = new StringBuilder();
 
 	public HBaseSailConnection(SailBase sailBase) {
 		super(sailBase);
-//		System.out.println("SailConnection created");
-		hbase = ((HBaseSail)sailBase).getHBase();
+		// System.out.println("SailConnection created");
+		hbase = ((HBaseSail) sailBase).getHBase();
 
 		memStore = new MemoryStore();
 		try {
@@ -64,24 +58,26 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 		}
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
-	protected void addStatementInternal(Resource arg0, URI arg1, Value arg2,
-			Resource... arg3) throws SailException {
+	protected void addStatementInternal(Resource arg0, URI arg1, Value arg2, Resource... arg3) throws SailException {
 		ArrayList<Statement> myList = new ArrayList();
 		Statement s = new StatementImpl(arg0, arg1, arg2);
 		myList.add(s);
-		
+
 		// TODO: update method for adding quads
-		
-//		try {
-//			HBaseClientSolution sol = HBaseFactory.getHBaseSolution(HBHexastoreSchema.SCHEMA_NAME, con, myList);
-//			sol.schema.create();
-//			sol.util.populateTables(myList);
-//		}
-//		catch (Exception e) {
-//			e.printStackTrace();
-//			// TODO error handling
-//		}
+
+		// try {
+		// HBaseClientSolution sol =
+		// HBaseFactory.getHBaseSolution(HBHexastoreSchema.SCHEMA_NAME, con,
+		// myList);
+		// sol.schema.create();
+		// sol.util.populateTables(myList);
+		// }
+		// catch (Exception e) {
+		// e.printStackTrace();
+		// // TODO error handling
+		// }
 	}
 
 	@Override
@@ -107,10 +103,8 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 
 	}
 
-
 	@Override
-	protected CloseableIteration<? extends Resource, SailException> getContextIDsInternal()
-			throws SailException {
+	protected CloseableIteration<? extends Resource, SailException> getContextIDsInternal() throws SailException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -122,40 +116,36 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 	}
 
 	@Override
-	protected CloseableIteration<? extends Namespace, SailException> getNamespacesInternal()
-			throws SailException {
+	protected CloseableIteration<? extends Namespace, SailException> getNamespacesInternal() throws SailException {
 		// TODO Auto-generated method stub
 		return null;
 	}
-	
-	
-	protected CloseableIteration<? extends Statement, SailException> getStatementsInternal(
-			Resource arg0, URI arg1, Value arg2, boolean arg3, Resource... arg4)
-			throws SailException {
-		try {	
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@Override
+	protected CloseableIteration<? extends Statement, SailException> getStatementsInternal(Resource arg0, URI arg1,
+			Value arg2, boolean arg3, Resource... arg4) throws SailException {
+		try {
 			String s = null;
 			String p = null;
 			String o = null;
 			ArrayList<String> g = new ArrayList();
-			
+
 			if (arg0 != null) {
 				s = arg0.stringValue();
-			}
-			else {
+			} else {
 				s = "?";
 			}
-			
+
 			if (arg1 != null) {
 				p = arg1.stringValue();
-			}
-			else {
+			} else {
 				p = "?";
 			}
-			
+
 			if (arg2 != null) {
 				o = arg2.stringValue();
-			}
-			else {
+			} else {
 				o = "?";
 			}
 
@@ -163,37 +153,36 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 				for (Resource r : arg4) {
 					g.add(r.stringValue());
 				}
-			}
-			else {
+			} else {
 				g.add("?");
 			}
-			
+
 			ArrayList<Statement> myList = new ArrayList();
 			for (String graph : g) {
-				String []triple = {s, p, o, graph};
+				String[] triple = { s, p, o, graph };
 				ArrayList<ArrayList<String>> triples = hbase.util.getRow(triple);
-				
-//				for (ArrayList<String> tr : triples) {
-//					for (String st : tr) {
-//						System.out.print(st + " ");
-//					}
-//					System.out.print("\n");
-//				}
-				
-	//			System.out.println("Raw triples: " + triples);
-				
+
+				// for (ArrayList<String> tr : triples) {
+				// for (String st : tr) {
+				// System.out.print(st + " ");
+				// }
+				// System.out.print("\n");
+				// }
+
+				// System.out.println("Raw triples: " + triples);
+
 				myList.addAll(reconstructTriples(triples, triple));
 			}
-				
-//			System.out.println("Triples retrieved:");
-//			System.out.println(myList.toString());
-				
+
+			// System.out.println("Triples retrieved:");
+			// System.out.println(myList.toString());
+
 			Iterator it = myList.iterator();
-			CloseableIteration<Statement, SailException> ci = new CloseableIteratorIteration<Statement, SailException>(it);
+			CloseableIteration<Statement, SailException> ci = new CloseableIteratorIteration<Statement, SailException>(
+					it);
 			return ci;
-	
-		}
-		catch (Exception e) {
+
+		} catch (Exception e) {
 			Exception ex = new SailException("HBase connection error: " + e.getMessage());
 			try {
 				throw ex;
@@ -204,23 +193,23 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 		}
 		return null;
 	}
-	
-	protected ArrayList<Statement> reconstructTriples(ArrayList<ArrayList<String>> result, String[] triple) throws SailException {
+
+	protected ArrayList<Statement> reconstructTriples(ArrayList<ArrayList<String>> result, String[] triple)
+			throws SailException {
 		ArrayList<Statement> list = new ArrayList();
-		
+
 		for (ArrayList<String> arrayList : result) {
 			int index = 0;
-			
+
 			Resource s = null;
 			URI p = null;
 			Value o = null;
 			Resource c = null;
-			
+
 			for (String value : arrayList) {
 				if (index == 0) {
-					s = (Resource)getSubject(value);
-				}
-				else if (index == 1) {
+					s = (Resource) getSubject(value);
+				} else if (index == 1) {
 					p = (URI) getPredicate(value);
 				} else if (index == 2) {
 
@@ -230,7 +219,7 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 						Statement statement = new StatementImpl(s, p, o);
 						list.add(statement);
 					} else {
-						c = (Resource)getContext(value);
+						c = (Resource) getContext(value);
 						Statement statement = new ContextStatementImpl(s, p, o, c);
 						list.add(statement);
 					}
@@ -240,7 +229,7 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 		}
 		return list;
 	}
-	
+
 	Value getSubject(String s) {
 		System.out.println("SUBJECT: " + s);
 		if (s.startsWith("_")) {
@@ -248,25 +237,24 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 		}
 		return new URIImpl(s);
 	}
-	
+
 	Value getPredicate(String s) {
 		System.out.println("PREDICATE: " + s);
 		return new URIImpl(s);
 	}
-	
+
 	Value getObject(String s) {
 		System.out.println("OBJECT: " + s);
 		if (s.startsWith("_")) {
 			return new BNodeImpl(s.substring(2));
-		}
-		else if (s.startsWith("\"")) {
+		} else if (s.startsWith("\"")) {
 			String literal = "";
 			String language = "";
 			String datatype = "";
-			
+
 			for (int i = 1; i < s.length(); i++) {
 				while (s.charAt(i) != '"') {
-					
+
 					// read literal value
 					literal += s.charAt(i);
 					if (s.charAt(i) == '\\') {
@@ -278,72 +266,66 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 						// EOF exception
 					}
 				}
-//				System.out.println(literal);
-				
+				// System.out.println(literal);
+
 				// charAt(i) = '"', read next char
 				i++;
-				
+
 				if (s.charAt(i) == '@') {
 					// read language
-//					System.out.println("reading language");
+					// System.out.println("reading language");
 					i++;
 					while (i < s.length()) {
 						language += s.charAt(i);
 						i++;
 					}
-//					System.out.println(language);
+					// System.out.println(language);
 					return new LiteralImpl(literal, language);
-				}
-				else if (s.charAt(i) == '^') {
+				} else if (s.charAt(i) == '^') {
 					// read datatype
 					i++;
-					
+
 					// check for second '^'
 					if (i == s.length()) {
 						// EOF exception
-					}
-					else if (s.charAt(i) != '^') {
+					} else if (s.charAt(i) != '^') {
 						// incorrect formatting exception
 					}
 					i++;
-					
+
 					// check for '<'
 					if (i == s.length()) {
 						// EOF exception
-					}
-					else if (s.charAt(i) != '<') {
+					} else if (s.charAt(i) != '<') {
 						// incorrect formatting exception
 					}
 					i++;
-					
+
 					while (s.charAt(i) != '>') {
-						datatype += s.charAt(i); 
+						datatype += s.charAt(i);
 						i++;
 						if (i == s.length()) {
 							// EOF exception
 						}
 					}
-//					System.out.println(datatype);
+					// System.out.println(datatype);
 					return new LiteralImpl(literal, new URIImpl(datatype));
-				}
-				else {
+				} else {
 					return new LiteralImpl(literal);
 				}
-				
+
 			}
 		}
-		
 
 		Value object;
 		try {
-			 object = new URIImpl(s);
-		}
-		catch (Exception e) {
+			object = new URIImpl(s);
+		} catch (Exception e) {
 			object = new LiteralImpl(s);
 		}
 		return object;
 	}
-	
+
 	Value getContext(String s) {
 		System.out.println("GRAPH: " + s);
 		return new URIImpl(s);
@@ -356,8 +338,7 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 	}
 
 	@Override
-	protected void removeStatementsInternal(Resource arg0, URI arg1,
-			Value arg2, Resource... arg3) throws SailException {
+	protected void removeStatementsInternal(Resource arg0, URI arg1, Value arg2, Resource... arg3) throws SailException {
 		// TODO Auto-generated method stub
 
 	}
@@ -369,8 +350,7 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 	}
 
 	@Override
-	protected void setNamespaceInternal(String arg0, String arg1)
-			throws SailException {
+	protected void setNamespaceInternal(String arg0, String arg1) throws SailException {
 		// TODO Auto-generated method stub
 
 	}
@@ -388,8 +368,8 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 	}
 
 	/**
-	 * This functions returns a List of all RDF statements in HBase
-	 * that are needed in the query.
+	 * This functions returns a List of all RDF statements in HBase that are
+	 * needed in the query.
 	 * 
 	 * @param arg0
 	 * @return
@@ -397,151 +377,144 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 	 */
 	protected ArrayList<Statement> evaluateInternal(TupleExpr arg0) throws SailException {
 		ArrayList<Statement> result = new ArrayList();
-		
+
 		try {
 			ArrayList<ArrayList<Var>> statements = HBaseQueryVisitor.convertToStatements(arg0, null, null);
-//			System.out.println("StatementPatterns: " + statements.size());
-			
+			// System.out.println("StatementPatterns: " + statements.size());
+
 			ArrayList<Var> contexts = HBaseQueryVisitor.getContexts(arg0);
 			ArrayList<Resource> cons = new ArrayList();
 			Iterator qt = contexts.iterator();
 			while (qt.hasNext()) {
-				Var context = (Var)qt.next();
+				Var context = (Var) qt.next();
 				if (context != null) {
 					System.out.println(context.toString());
 				}
 			}
-			
-			
+
 			Iterator it = statements.iterator();
 			while (it.hasNext()) {
-				ArrayList<Var> sp = (ArrayList<Var>)it.next();
-				
-//				System.out.println("CONTEXTS:");
-//				if (contexts != null) {
-//					for (Var con : contexts) {
-//						System.out.println("CONTEXT: " + con.toString());
-//	//					cons.add((Resource)new URIImpl(con.));
-//					}
-//				}
-				
+				ArrayList<Var> sp = (ArrayList<Var>) it.next();
+
+				// System.out.println("CONTEXTS:");
+				// if (contexts != null) {
+				// for (Var con : contexts) {
+				// System.out.println("CONTEXT: " + con.toString());
+				// // cons.add((Resource)new URIImpl(con.));
+				// }
+				// }
+
 				Resource subj = null;
 				URI pred = null;
 				Value obj = null;
 				Iterator jt = sp.iterator();
-				
-				
+
 				int index = 0;
-				
+
 				while (jt.hasNext()) {
-					Var var = (Var)jt.next();
-					
+					Var var = (Var) jt.next();
+
 					if (index == 0) {
 						if (var.hasValue()) {
-				            subj = (Resource)getSubject(var.getValue().stringValue());
-				        } else if (var.isAnonymous()) {
-				        	subj = (Resource)getSubject(var.getName()); 
-				        	
-				        }
-					}
-					else if (index == 1) {
+							subj = (Resource) getSubject(var.getValue().stringValue());
+						} else if (var.isAnonymous()) {
+							subj = (Resource) getSubject(var.getName());
+
+						}
+					} else if (index == 1) {
 						if (var.hasValue()) {
-				            pred = (URI)getPredicate(var.getValue().stringValue());
-				        }
-						
-					}
-					else {
+							pred = (URI) getPredicate(var.getValue().stringValue());
+						}
+
+					} else {
 						if (var.hasValue()) {
-				            obj = (Value)getObject(var.getValue().stringValue());
-				        } else if (var.isAnonymous()) {
-				        	obj = (Value)getObject(var.getName());
-				        }
+							obj = getObject(var.getValue().stringValue());
+						} else if (var.isAnonymous()) {
+							obj = getObject(var.getName());
+						}
 					}
 					index += 1;
 				}
-				
+
 				CloseableIteration ci = getStatementsInternal(subj, pred, obj, false, null);
-				
+
 				while (ci.hasNext()) {
-					Statement statement = (Statement)ci.next();
+					Statement statement = (Statement) ci.next();
 					result.add(statement);
 				}
 			}
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			throw new SailException(e);
 		}
-		
+
 		return result;
 	}
-	
+
 	/**
-	 * This function retrieves all the triples from HBase that
-	 * match with StatementPatterns in the SPARQL query, without
-	 * executing the SPARQL query on them.
+	 * This function retrieves all the triples from HBase that match with
+	 * StatementPatterns in the SPARQL query, without executing the SPARQL query
+	 * on them.
 	 */
 	@Override
-	protected CloseableIteration<? extends BindingSet, QueryEvaluationException> evaluateInternal(
-			TupleExpr arg0, Dataset arg1, BindingSet arg2, boolean arg3)
-			throws SailException {
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	protected CloseableIteration<? extends BindingSet, QueryEvaluationException> evaluateInternal(TupleExpr arg0,
+			Dataset arg1, BindingSet arg2, boolean arg3) throws SailException {
 		ArrayList<MapBindingSet> result = new ArrayList();
 		Set<String> bindingSet = arg2.getBindingNames();
-		
+
 		try {
 			ArrayList<ArrayList<Var>> statements = HBaseQueryVisitor.convertToStatements(arg0, null, null);
 			ArrayList<Var> contexts = HBaseQueryVisitor.getContexts(arg0);
-			
+
 			for (Var con : contexts) {
 				System.out.println("CONTEXT: " + con.toString());
 			}
-			
+
 			Iterator it = statements.iterator();
 			while (it.hasNext()) {
-				ArrayList<Var> sp = (ArrayList<Var>)it.next();
+				ArrayList<Var> sp = (ArrayList<Var>) it.next();
 
-				String[] variables = {"", "", ""};
-				MapBindingSet mapBindingSet  = new MapBindingSet();
-				
+				String[] variables = { "", "", "" };
+				MapBindingSet mapBindingSet = new MapBindingSet();
+
 				Resource subj = null;
 				URI pred = null;
 				Value obj = null;
 				Iterator jt = sp.iterator();
 				int index = 0;
-				
+
 				while (jt.hasNext()) {
-					Var var = (Var)jt.next();
-					
+					Var var = (Var) jt.next();
+
 					if (index == 0) {
 						if (var.hasValue()) {
-				            subj = (Resource)getSubject(var.getValue().stringValue());
-				        } else if (var.isAnonymous()) {
-				        	subj = (Resource)getSubject(var.getName()); 
-				        	
-				        }
-					}
-					else if (index == 1) {
+							subj = (Resource) getSubject(var.getValue().stringValue());
+						} else if (var.isAnonymous()) {
+							subj = (Resource) getSubject(var.getName());
+
+						}
+					} else if (index == 1) {
 						if (var.hasValue()) {
-				            pred = (URI)getPredicate(var.getValue().stringValue());
-				        }
-						
-					}
-					else {
+							pred = (URI) getPredicate(var.getValue().stringValue());
+						}
+
+					} else {
 						if (var.hasValue()) {
-				            obj = (Value)getObject(var.getValue().stringValue());
-				        } else if (var.isAnonymous()) {
-				        	obj = (Value)getObject(var.getName());
-				        }
+							obj = getObject(var.getValue().stringValue());
+						} else if (var.isAnonymous()) {
+							obj = getObject(var.getName());
+						}
 					}
 					index += 1;
 				}
-				
+
 				CloseableIteration ci = getStatementsInternal(subj, pred, obj, false, null);
-				
+
 				while (ci.hasNext()) {
-					Statement statement = (Statement)ci.next();
-					Value[] values = {statement.getSubject(), statement.getPredicate(), statement.getObject()};
-					
-					for (int i = 0; i < 3; i ++) {
+					Statement statement = (Statement) ci.next();
+					Value[] values = { statement.getSubject(), statement.getPredicate(), statement.getObject() };
+
+					for (int i = 0; i < 3; i++) {
 						if (variables[i] != "" && bindingSet.contains(variables[i])) {
 							mapBindingSet.addBinding(variables[i], values[i]);
 						}
@@ -549,80 +522,86 @@ public class HBaseSailConnection extends NotifyingSailConnectionBase {
 				}
 				result.add(mapBindingSet);
 			}
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			e.printStackTrace();
 			throw new SailException(e);
 		}
-		
+
 		Iterator it = result.iterator();
-		CloseableIteration<MapBindingSet, QueryEvaluationException> ci = new CloseableIteratorIteration<MapBindingSet, QueryEvaluationException>(it);
-		
+		CloseableIteration<MapBindingSet, QueryEvaluationException> ci = new CloseableIteratorIteration<MapBindingSet, QueryEvaluationException>(
+				it);
+
 		return ci;
 	}
-	
-	
+
 	/**
-	 * This function retrieves the relevant triples from HBase,
-	 * loads them into an in-memory store, then evaluates the SPARQL query on them.
+	 * This function retrieves the relevant triples from HBase, loads them into
+	 * an in-memory store, then evaluates the SPARQL query on them.
 	 * 
-	 * @param tupleExpr 
+	 * @param tupleExpr
 	 * @param dataset
 	 * @param bindings
 	 * @param includeInferred
 	 * @return
 	 * @throws SailException
 	 */
-	public TupleQueryResult query(TupleExpr tupleExpr, Dataset dataset, BindingSet bindings, boolean includeInferred) throws SailException {
-//		System.out.println("Evaluating query");
+	@SuppressWarnings({ "rawtypes" })
+	public TupleQueryResult query(TupleExpr tupleExpr, Dataset dataset, BindingSet bindings, boolean includeInferred)
+			throws SailException {
+		// System.out.println("Evaluating query");
 		System.out.println("EVALUATE:" + tupleExpr.toString());
-		
+
 		try {
 			ArrayList<Statement> statements = evaluateInternal(tupleExpr);
-//			System.out.println("Statements retrieved: " + statements.size());
-			
+			// System.out.println("Statements retrieved: " + statements.size());
+
 			Iterator it = statements.iterator();
 			while (it.hasNext()) {
-				Statement statement = (Statement)it.next();
-				Resource[] context = {new URIImpl("http://hbase.sail.vu.nl")};
-				memStoreCon.addStatement(statement.getSubject(), statement.getPredicate(), statement.getObject(), context);
+				Statement statement = (Statement) it.next();
+				Resource[] context = { new URIImpl("http://hbase.sail.vu.nl") };
+				memStoreCon.addStatement(statement.getSubject(), statement.getPredicate(), statement.getObject(),
+						context);
 			}
-			
-			CloseableIteration<? extends BindingSet, QueryEvaluationException> ci = memStoreCon.evaluate(tupleExpr, dataset, bindings, includeInferred);
-			CloseableIteration<? extends BindingSet, QueryEvaluationException> cj = memStoreCon.evaluate(tupleExpr, dataset, bindings, includeInferred);
-			
+
+			CloseableIteration<? extends BindingSet, QueryEvaluationException> ci = memStoreCon.evaluate(tupleExpr,
+					dataset, bindings, includeInferred);
+			CloseableIteration<? extends BindingSet, QueryEvaluationException> cj = memStoreCon.evaluate(tupleExpr,
+					dataset, bindings, includeInferred);
+
 			List<String> bindingList = new ArrayList<String>();
 			int index = 0;
 			while (ci.hasNext()) {
 				index++;
-				BindingSet bs = (BindingSet)ci.next();
-//                System.out.println("Binding size(" + index + "): " + bs.getBindingNames().size());
+				BindingSet bs = ci.next();
+				// System.out.println("Binding size(" + index + "): " +
+				// bs.getBindingNames().size());
 				Set<String> localBindings = bs.getBindingNames();
 				Iterator jt = localBindings.iterator();
 				while (jt.hasNext()) {
-					String binding = (String)jt.next();
+					String binding = (String) jt.next();
 					if (bindingList.contains(binding) == false) {
 						bindingList.add(binding);
-//						System.out.println("Added binding: " + binding);
+						// System.out.println("Added binding: " + binding);
 					}
 				}
 			}
-//			System.out.println("Results retrieved from memory store: " + index);
-//			System.out.println("Bindings retrieved from memory store: " + bindingList.size());
-			
-			
+			// System.out.println("Results retrieved from memory store: " +
+			// index);
+			// System.out.println("Bindings retrieved from memory store: " +
+			// bindingList.size());
+
 			TupleQueryResult result = new TupleQueryResultImpl(bindingList, cj);
-			
-//			int ressize = 0;
-//			while (result.hasNext()) {
-//				BindingSet binding = result.next();
-//				System.out.println("x = " + binding.getValue("x").stringValue());
-//				ressize += 1;
-//			}
-//			System.out.println("TupleQueryResult size: " + ressize);
-			
+
+			// int ressize = 0;
+			// while (result.hasNext()) {
+			// BindingSet binding = result.next();
+			// System.out.println("x = " + binding.getValue("x").stringValue());
+			// ressize += 1;
+			// }
+			// System.out.println("TupleQueryResult size: " + ressize);
+
 			return result;
-			
+
 		} catch (SailException e) {
 			e.printStackTrace();
 			throw e;

@@ -21,7 +21,7 @@ import org.openrdf.model.Value;
 public class HBHexastoreUtil implements IHBaseUtil {
 
 	private HBaseConnection con;
-	private HBHexastoreSchema schema;
+	private final HBHexastoreSchema schema;
 
 	private static Logger logger = Logger.getLogger("HexastoreLogger");
 
@@ -290,7 +290,7 @@ public class HBHexastoreUtil implements IHBaseUtil {
 	}
 
 	@Override
-	public ArrayList<ArrayList<Value>> getAllResults(Value[] quad) throws IOException {
+	public ArrayList<Value[]> getAllResults(Value[] quad) throws IOException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -306,6 +306,26 @@ public class HBHexastoreUtil implements IHBaseUtil {
 	public Value[] getSingleResult(Value[] quad, Random randomizer) throws IOException {
 		// TODO Auto-generated method stub
 		return null;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * nl.vu.datalayer.hbase.util.IHBaseUtil#getNumberResults(org.openrdf.model
+	 * .Value[])
+	 */
+	@Override
+	public long getNumberResults(Value[] quad) throws IOException {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	/**
+	 * @return the schema
+	 */
+	public HBHexastoreSchema getSchema() {
+		return schema;
 	}
 
 }

@@ -25,7 +25,16 @@ public interface IHBaseUtil {
 	 * @return
 	 * @throws IOException
 	 */
-	public ArrayList<ArrayList<Value>> getAllResults(Value[] quad) throws IOException;
+	public ArrayList<Value[]> getAllResults(Value[] quad) throws IOException;
+
+	/**
+	 * Returns the number of triples matching a given quad pattern
+	 * 
+	 * @param quad
+	 * @return
+	 * @throws IOException
+	 */
+	public long getNumberResults(Value[] quad) throws IOException;
 
 	/**
 	 * Return one of the quad matching the given BGP

@@ -22,7 +22,7 @@ import org.openrdf.model.Value;
 
 public class HBasePredicateCFUtil implements IHBaseUtil {
 
-	private HBasePredicateCFSchema schema;
+	private final HBasePredicateCFSchema schema;
 	private HBaseConnection con;
 
 	public HBasePredicateCFUtil(HBaseConnection con, IHBaseSchema schema) {
@@ -124,7 +124,7 @@ public class HBasePredicateCFUtil implements IHBaseUtil {
 	}
 
 	@Override
-	public ArrayList<ArrayList<Value>> getAllResults(Value[] quad) throws IOException {
+	public ArrayList<Value[]> getAllResults(Value[] quad) throws IOException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -140,6 +140,26 @@ public class HBasePredicateCFUtil implements IHBaseUtil {
 	public Value[] getSingleResult(Value[] quad, Random randomizer) throws IOException {
 		// TODO Auto-generated method stub
 		return null;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * nl.vu.datalayer.hbase.util.IHBaseUtil#getNumberResults(org.openrdf.model
+	 * .Value[])
+	 */
+	@Override
+	public long getNumberResults(Value[] quad) throws IOException {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	/**
+	 * @return the schema
+	 */
+	public HBasePredicateCFSchema getSchema() {
+		return schema;
 	}
 
 }
