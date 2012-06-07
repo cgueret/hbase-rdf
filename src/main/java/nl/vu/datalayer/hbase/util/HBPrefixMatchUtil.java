@@ -69,12 +69,15 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 	private String schemaSuffix;
 
+	private boolean useCache = false;
+
 	/**
 	 * @param con
 	 */
-	public HBPrefixMatchUtil(HBaseConnection con) {
+	public HBPrefixMatchUtil(HBaseConnection con, boolean useCache) {
 		super();
 		this.con = con;
+		this.useCache = useCache;
 
 		// Build the hash map
 		pattern2Table.put("????", HBPrefixMatchSchema.SPOC);
@@ -101,10 +104,12 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 		// Initialise the caches
 		id2ValueMap = new HashMap<ByteArray, Value>();
-		try {
-			resultCache = JCS.getInstance("results");
-		} catch (CacheException e1) {
-			e1.printStackTrace();
+		if (useCache) {
+			try {
+				resultCache = JCS.getInstance("results");
+			} catch (CacheException e1) {
+				e1.printStackTrace();
+			}
 		}
 
 		// id2ValueMap = new HashMap<ByteArray, Value>();
@@ -120,64 +125,50 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		schemaSuffix = prop.getProperty(HBPrefixMatchSchema.SUFFIX_PROPERTY, "");
 	}
 
-	@Override
-	public ArrayList<ArrayList<String>> getRow(String[] quad) {
-		return null;
-	}
-
 	/**
 	 * @param quad
 	 * @return
 	 */
 	@SuppressWarnings("unchecked")
-	protected ArrayList<ByteArray> getMatchingTriples(Value[] quad) {
-		boundElements.clear();
-		id2ValueMap.clear();
+	protected ArrayList<ByteArray> getMatchingQuads(Value[] quad, byte[] startKey) {
 
 		ArrayList<Value> cacheKey = new ArrayList<Value>();
 		for (Value v : quad)
 			cacheKey.add(v);
 
-		// Build the key
-		byte[] startKey = null;
-		try {
-			startKey = buildKey(quad);
-		} catch (IOException e1) {
-			e1.printStackTrace();
-		} catch (NumericalRangeException e1) {
-			e1.printStackTrace();
-		}
+		ArrayList<ByteArray> resultsList = null;
+		if (useCache)
+			resultsList = (ArrayList<ByteArray>) resultCache.get(cacheKey);
 
-		ArrayList<ByteArray> resultsList = (ArrayList<ByteArray>) resultCache.get(cacheKey);
-		// resultsList = null;
 		ResultScanner results = null;
 		if (resultsList == null) {
-			logger.info("Cached missed, need to query the data layer");
+			// logger.info("GET (" + quad[0] + ", " + quad[1] + ", " + quad[2] +
+			// ", " + quad[3] + ")");
+
 			resultsList = new ArrayList<ByteArray>();
 
 			try {
-				// If no key can be created, no quad matches the request
-				if (startKey != null) {
 
-					// Search for matching quads
-					Filter prefixFilter = new PrefixFilter(startKey);
-					Filter keyOnlyFilter = new KeyOnlyFilter();
-					Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL, prefixFilter, keyOnlyFilter);
-					Scan scan = new Scan(startKey, filterList);
-					scan.setCaching(1000);
+				// Search for matching quads
+				Filter prefixFilter = new PrefixFilter(startKey);
+				Filter keyOnlyFilter = new KeyOnlyFilter();
+				Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL, prefixFilter, keyOnlyFilter);
+				Scan scan = new Scan(startKey, filterList);
+				scan.setCaching(100);
 
-					String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] + schemaSuffix;
-					HTableInterface table = con.getTable(tableName);
-					results = table.getScanner(scan);
+				String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] + schemaSuffix;
+				HTableInterface table = con.getTable(tableName);
+				results = table.getScanner(scan);
 
-					Result r = null;
-					while ((r = results.next()) != null) {
-						resultsList.add(new ByteArray(r.getRow()));
-					}
+				Result r = null;
+				while ((r = results.next()) != null) {
+					resultsList.add(new ByteArray(r.getRow()));
+				}
+				results.close();
 
+				if (useCache)
 					resultCache.put(cacheKey, resultsList);
 
-				}
 			} catch (IOException e) {
 				e.printStackTrace();
 			} catch (CacheException e) {
@@ -202,17 +193,15 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 	public ArrayList<Value[]> getAllResults(Value[] quad) throws IOException {
 		id2ValueMap.clear();
 		boundElements.clear();
-		// we expect the pattern in the order SPOC
 
 		try {
 			// Build the key
 			byte[] startKey = buildKey(quad);
-
 			// If no key can be created, no quad matches the request
-			if (startKey == null) {
+			if (startKey == null)
 				return null;
-			}
-			ArrayList<ByteArray> resultsList = getMatchingTriples(quad);
+
+			ArrayList<ByteArray> resultsList = getMatchingQuads(quad, startKey);
 
 			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
 			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
@@ -229,12 +218,16 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 				byte[] rowVal = result.getValue(HBPrefixMatchSchema.COLUMN_FAMILY, HBPrefixMatchSchema.COLUMN_NAME);
 				byte[] rowKey = result.getRow();
 				if (rowVal == null || rowKey == null) {
-					System.err.println("Id not found: " + (rowKey == null ? null : hexaString(rowKey)));
+					// logger.error("Id not found: " + (rowKey == null ? null :
+					// hexaString(rowKey)));
 				} else {
 					Value val = convertStringToValue(new String(rowVal));
 					id2ValueMap.put(new ByteArray(rowKey), val);
 				}
 			}
+
+			// Close the table
+			id2StringTable.close();
 
 			int queryElemNo = boundElements.size();
 			// build the quads in SPOC order using strings
@@ -289,15 +282,11 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		try {
 			// Build the key
 			byte[] startKey = buildKey(quad);
-
 			// If no key can be created, no quad matches the request
-			if (startKey == null) {
+			if (startKey == null)
 				return null;
-			}
-			ArrayList<ByteArray> resultsList = getMatchingTriples(quad);
 
-			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
-			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
+			ArrayList<ByteArray> resultsList = getMatchingQuads(quad, startKey);
 
 			// If the list is empty, return null
 			if (resultsList.size() == 0) {
@@ -305,11 +294,13 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 			}
 
 			// Pick a result at random
-			List<Get> batchGets = new ArrayList<Get>();
 			ByteArray result = resultsList.get(randomizer.nextInt(resultsList.size()));
-			ArrayList<ByteArray> quadResult = parseKey(result.getBytes(), startKey.length, sizeOfInterest, batchGets);
 
-			// System.out.println("Search time: "+searchTime+"; Id2StringOverhead: "+id2StringOverhead+"; String2IdOverhead: "+string2IdOverhead);
+			// Prepare to decode it
+			List<Get> batchGets = new ArrayList<Get>();
+			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
+			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
+			ArrayList<ByteArray> quadResult = parseKey(result.getBytes(), startKey.length, sizeOfInterest, batchGets);
 
 			// update the internal mapping between ids and strings
 			for (Result id2StringResult : id2StringTable.get(batchGets)) {
@@ -317,12 +308,16 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 						HBPrefixMatchSchema.COLUMN_NAME);
 				byte[] rowKey = id2StringResult.getRow();
 				if (rowVal == null || rowKey == null) {
-					System.err.println("Id not found: " + (rowKey == null ? null : hexaString(rowKey)));
+					// logger.error("Id not found: " + (rowKey == null ? null :
+					// hexaString(rowKey)));
 				} else {
 					Value val = convertStringToValue(new String(rowVal));
 					id2ValueMap.put(new ByteArray(rowKey), val);
 				}
 			}
+
+			// Close the table
+			id2StringTable.close();
 
 			int queryElemNo = boundElements.size();
 
@@ -365,34 +360,25 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		id2ValueMap.clear();
 		boundElements.clear();
 
-		// we expect the pattern in the order SPOC
+		try {
+			// Build the key
+			byte[] startKey = buildKey(quad);
+			// If no key can be created, no quad matches the request
+			if (startKey == null)
+				return 0;
 
-		ArrayList<ByteArray> results = getMatchingTriples(quad);
-		return results.size();
-
-		/*
-		 * try { byte[] startKey = buildKey(quad); if (startKey == null) return
-		 * 0;
-		 * 
-		 * // start search in the quad tables Filter prefixFilter = new
-		 * PrefixFilter(startKey); Filter keyOnlyFilter = new KeyOnlyFilter();
-		 * Filter filterList = new FilterList(FilterList.Operator.MUST_PASS_ALL,
-		 * prefixFilter, keyOnlyFilter);
-		 * 
-		 * Scan scan = new Scan(startKey, filterList); scan.setCaching(1000);
-		 * 
-		 * String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] +
-		 * schemaSuffix; HTableInterface table = con.getTable(tableName);
-		 * ResultScanner results = table.getScanner(scan);
-		 * 
-		 * long number = 0; while (results.next() != null && number < 1000)
-		 * number++; results.close();
-		 * 
-		 * return number; } catch (NumericalRangeException e) {
-		 * e.printStackTrace(); return 0; }
-		 */
+			ArrayList<ByteArray> results = getMatchingQuads(quad, startKey);
+			return results.size();
+		} catch (NumericalRangeException e) {
+			e.printStackTrace();
+			return 0;
+		}
 	}
 
+	/**
+	 * @param val
+	 * @return
+	 */
 	public Value convertStringToValue(String val) {
 		if (val.startsWith("_:")) {// bNode
 			return valueFactory.createBNode(val.substring(2));
@@ -416,6 +402,10 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		}
 	}
 
+	/**
+	 * @param b
+	 * @return
+	 */
 	public static String hexaString(byte[] b) {
 		String ret = "";
 		for (int i = 0; i < b.length; i++) {
@@ -424,6 +414,11 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		return ret;
 	}
 
+	/**
+	 * @param s
+	 * @return
+	 * @throws IOException
+	 */
 	public byte[] retrieveId(String s) throws IOException {
 		byte[] sBytes = s.getBytes();
 		byte[] key = StringIdAssoc.reverseBytes(sBytes, sBytes.length);
@@ -495,6 +490,12 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		return currentQuad;
 	}
 
+	/**
+	 * @param quad
+	 * @return
+	 * @throws IOException
+	 * @throws NumericalRangeException
+	 */
 	private byte[] buildKey(Value[] quad) throws IOException, NumericalRangeException {
 		String pattern = "";
 		int keySize = 0;
@@ -572,6 +573,11 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		}
 
 		return key;
+	}
+
+	@Override
+	public ArrayList<ArrayList<String>> getRow(String[] quad) {
+		return null;
 	}
 
 	@Override

@@ -22,7 +22,7 @@ public class HBaseFactory {
 	final static Logger logger = LoggerFactory.getLogger(HBaseFactory.class);
 
 	public static HBaseClientSolution getHBaseSolution(String schemaName, HBaseConnection con,
-			ArrayList<Statement> statements) {
+			ArrayList<Statement> statements, boolean useCache) {
 
 		if (schemaName.equals(HBasePredicateCFSchema.SCHEMA_NAME)) {
 			HBasePredicateCFSchema schema = new HBasePredicateCFSchema(con, statements);
@@ -36,10 +36,16 @@ public class HBaseFactory {
 			}
 			String schemaSuffix = prop.getProperty(HBPrefixMatchSchema.SUFFIX_PROPERTY, "");
 			HBPrefixMatchSchema schema = new HBPrefixMatchSchema(con, schemaSuffix);
-			return new HBaseClientSolution(schema, new HBPrefixMatchUtil(con));
+			return new HBaseClientSolution(schema, new HBPrefixMatchUtil(con, useCache));
 		} else {// default hexastore"
 			HBHexastoreSchema schema = new HBHexastoreSchema(con);
 			return new HBaseClientSolution(schema, new HBHexastoreUtil(con, schema));
 		}
+	}
+
+	public static HBaseClientSolution getHBaseSolution(String schemaName, HBaseConnection con,
+			ArrayList<Statement> statements) {
+
+		return getHBaseSolution(schemaName, con, statements, false);
 	}
 }
