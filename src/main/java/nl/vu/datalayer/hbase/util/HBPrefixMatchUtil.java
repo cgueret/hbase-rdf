@@ -1,11 +1,13 @@
 package nl.vu.datalayer.hbase.util;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Properties;
 import java.util.Random;
 
 import nl.vu.datalayer.hbase.bulkload.StringIdAssoc;
@@ -57,6 +59,8 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 	private ValueFactory valueFactory;
 
+	private String schemaSuffix;
+
 	/**
 	 * @param con
 	 */
@@ -68,6 +72,14 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		id2ValueMap = new HashMap<ByteArray, Value>();
 		boundElements = new ArrayList<Value>();
 		valueFactory = new ValueFactoryImpl();
+
+		Properties prop = new Properties();
+		try {
+			prop.load(new FileInputStream("config.properties"));
+		} catch (IOException e) {
+			// continue to use the default properties
+		}
+		schemaSuffix = prop.getProperty(HBPrefixMatchSchema.SUFFIX_PROPERTY, "");
 	}
 
 	private void buildHashMap() {
@@ -80,12 +92,11 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		pattern2Table.put("?|??", HBPrefixMatchSchema.POCS);
 		pattern2Table.put("?||?", HBPrefixMatchSchema.POCS);
 		pattern2Table.put("?|||", HBPrefixMatchSchema.POCS);
+		pattern2Table.put("??|?", HBPrefixMatchSchema.OSPC);
+		pattern2Table.put("|?|?", HBPrefixMatchSchema.OSPC);
 
-		pattern2Table.put("??|?", HBPrefixMatchSchema.OCSP);
 		pattern2Table.put("??||", HBPrefixMatchSchema.OCSP);
 		pattern2Table.put("|?||", HBPrefixMatchSchema.OCSP);
-
-		pattern2Table.put("|?|?", HBPrefixMatchSchema.OSPC);
 
 		pattern2Table.put("???|", HBPrefixMatchSchema.CSPO);
 		pattern2Table.put("|??|", HBPrefixMatchSchema.CSPO);
@@ -127,13 +138,13 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 			Scan scan = new Scan(startKey, filterList);
 			scan.setCaching(100);
 
-			String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex];
+			String tableName = HBPrefixMatchSchema.TABLE_NAMES[tableIndex] + schemaSuffix;
 			HTableInterface table = con.getTable(tableName);
 			ResultScanner results = table.getScanner(scan);
 
 			Result r = null;
 			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
-			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING);
+			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
 
 			ArrayList<Get> batchGets = new ArrayList<Get>();
 			ArrayList<ArrayList<ByteArray>> quadResults = new ArrayList<ArrayList<ByteArray>>();
@@ -240,8 +251,7 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 		Get g = new Get(key);
 		g.addColumn(HBPrefixMatchSchema.COLUMN_FAMILY, HBPrefixMatchSchema.COLUMN_NAME);
-
-		HTableInterface table = con.getTable(HBPrefixMatchSchema.STRING2ID);
+		HTableInterface table = con.getTable(HBPrefixMatchSchema.STRING2ID + schemaSuffix);
 		Result r = table.get(g);
 		byte[] id = r.getValue(HBPrefixMatchSchema.COLUMN_FAMILY, HBPrefixMatchSchema.COLUMN_NAME);
 		if (id == null) {
@@ -354,10 +364,9 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 		tableIndex = pattern2Table.get(pattern);
 
 		// HTable table = con.getTable(HBPrefixMatchSchema.STRING2ID);
-		HTableInterface table = con.getTable(HBPrefixMatchSchema.STRING2ID);
+		HTableInterface table = con.getTable(HBPrefixMatchSchema.STRING2ID + schemaSuffix);
 
 		byte[] key = new byte[keySize];
-		// long string2IdOverhead = 0;
 		for (int i = 0; i < string2Ids.size(); i++) {
 			Get get = string2Ids.get(i);
 
@@ -432,7 +441,7 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 
 			Result r = null;
 			int sizeOfInterest = HBPrefixMatchSchema.KEY_LENGTH - startKey.length;
-			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING);
+			HTableInterface id2StringTable = con.getTable(HBPrefixMatchSchema.ID2STRING + schemaSuffix);
 
 			ArrayList<ByteArray> resultsList = new ArrayList<ByteArray>();
 			while ((r = results.next()) != null) {
