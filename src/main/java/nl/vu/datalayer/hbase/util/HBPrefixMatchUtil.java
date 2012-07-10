@@ -555,8 +555,9 @@ public class HBPrefixMatchUtil implements IHBaseUtil {
 			// string2IdOverhead += System.currentTimeMillis() - start;
 
 			if (value == null) {
-				byte[] rowKey = result.getRow();
-				System.err.println("Quad element could not be found " + (rowKey == null ? null : hexaString(rowKey)));
+				// byte[] rowKey = result.getRow();
+				// System.err.println("Quad element could not be found " +
+				// (rowKey == null ? null : hexaString(rowKey)));
 				return null;
 			}
 
